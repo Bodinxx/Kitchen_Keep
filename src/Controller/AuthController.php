@@ -8,7 +8,9 @@ final class AuthController
     public function showRegister(Request $request): Response { return new Response(render('auth/register', ['auth' => $this->auth, 'errors' => []])); }
     public function handleRegister(Request $request): Response
     {
-        $data = $request->postData(); put_old($data); if (!Csrf::validateToken((string) ($data['csrf_token'] ?? ''))) { flash('error', 'Your session expired.'); return Response::redirect('/register'); }
+        $data = $request->postData(); put_old($data);
+        file_put_contents(DATA_PATH . '/logs/register-debug.log', sprintf("[%s] POST csrf_token=%s session_csrf=%s session_id=%s\n", date('c'), substr((string)($data['csrf_token'] ?? ''), 0, 8) . '...', substr((string)($_SESSION['_csrf'] ?? 'NONE'), 0, 8) . '...', session_id()), FILE_APPEND);
+        if (!Csrf::validateToken((string) ($data['csrf_token'] ?? ''))) { return new Response(render('auth/register', ['auth' => $this->auth, 'errors' => ['general' => ['Your session expired. Please try submitting the form again.']]])); }
         $errors = Validator::validate($data, ['username' => ['required', 'regex' => '/^[a-zA-Z0-9_-]{3,30}$/'], 'real_name' => ['required', 'max_length' => 100], 'email' => ['required', 'email'], 'password' => ['required', 'min_length' => 8]]);
         if ($this->userStore->findByUsername((string) ($data['username'] ?? ''))) $errors['username'][] = 'That username is already taken.';
         if ($this->userStore->findByEmail((string) ($data['email'] ?? ''))) $errors['email'][] = 'That email is already registered.';
