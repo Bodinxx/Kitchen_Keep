@@ -1,0 +1,1 @@
+<?php foreach (($_SESSION['flash'] ?? []) as $flashMessage): ?><div class="flash flash-<?= e($flashMessage['type']) ?>" data-flash><?= e($flashMessage['message']) ?></div><?php endforeach; unset($_SESSION['flash']); ?>

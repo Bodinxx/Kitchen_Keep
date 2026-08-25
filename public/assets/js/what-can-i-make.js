@@ -1,0 +1,1 @@
+(()=>{const form=document.querySelector('[data-what-can-i-make-form]');const input=document.querySelector('[data-ingredient-chip-input]');if(!form||!input)return;input.addEventListener('blur',()=>{input.value=input.value.split(',').map((value)=>value.trim()).filter(Boolean).join(', ')})})();

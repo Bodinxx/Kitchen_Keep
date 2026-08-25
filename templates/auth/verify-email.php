@@ -1,0 +1,1 @@
+<section class="container narrow section card"><h1>Email verification</h1><?php if (!empty($success)): ?><p>Your email has been verified. You can now <a href="/login">log in</a>.</p><?php else: ?><p>This verification link is invalid or has already been used.</p><?php endif; ?></section>
