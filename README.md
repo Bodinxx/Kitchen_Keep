@@ -203,7 +203,7 @@ Each recipe JSON must contain enough structured information to render, scale, se
 - **REC-007 --- Dietary tags** *(Launch)* Dietary tags are controlled and manually selected at launch. Automatic inference is future functionality.
 - **REC-008 --- Allergens** *(Launch)* Declared allergens are stored separately from dietary tags and displayed prominently near the top of the recipe.
 
-# 8. Ingredients, Measurements and Conversion {#ingredients-measurements-and-conversion}
+# 8. Ingredients, Measurements and Conversion
 
 ## 8.1 Structured Ingredient Entries
 - **ING-001 --- Structured fields** *(Launch)* Ingredients must be stored as quantity, optional upper quantity/range, unit, canonical ingredient ID/name, preparation/state note, requirement type, scaling flag and group reference rather than one unstructured string.
