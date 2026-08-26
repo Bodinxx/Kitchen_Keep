@@ -36,11 +36,21 @@ spl_autoload_register(static function (string $class): void {
 if (session_status() === PHP_SESSION_NONE) {
     $sessionPath = DATA_PATH . '/sessions';
     if (!is_dir($sessionPath)) {
-        mkdir($sessionPath, 0700, true);
+        mkdir($sessionPath, 0775, true);
     }
-    session_save_path($sessionPath);
+    if (is_dir($sessionPath) && is_writable($sessionPath)) {
+        session_save_path($sessionPath);
+    }
     session_name('kitchen_keep');
-    session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax', 'use_strict_mode' => true]);
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? '') === '443');
+    session_start([
+        'cookie_httponly' => true,
+        'cookie_samesite' => 'Lax',
+        'cookie_path' => '/',
+        'cookie_secure' => $https,
+        'use_strict_mode' => true,
+        'use_only_cookies' => true,
+    ]);
 }
 
 // ---------------------------------------------------------------------------
