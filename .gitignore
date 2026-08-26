@@ -1,0 +1,11 @@
+# Database credentials — copy db.example.php to db.php and fill in your values
+config/db.php
+
+# Uploaded media and user data (not committed)
+data/
+public/uploads/
+
+# IDE / OS
+.DS_Store
+.idea/
+*.swp

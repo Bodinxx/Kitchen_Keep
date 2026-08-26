@@ -1,11 +1,12 @@
 <?php
 declare(strict_types=1);
 namespace App\Controller;
-use App\Core\Auth; use App\Core\Request; use App\Core\Response; use App\Core\Session; use App\Service\BackupService; use App\Store\IndexBuilder; use App\Store\RatingsStore; use App\Store\RecipeStore; use App\Store\UserStore; use App\Util\Csrf;
+use App\Core\Auth; use App\Core\Request; use App\Core\Response; use App\Core\Session; use App\Service\BackupService; use App\Store\FlagsStore; use App\Store\IndexBuilder; use App\Store\RatingsStore; use App\Store\RecipeStore; use App\Store\UserStore; use App\Util\Csrf;
 final class AdminController
 {
-    public function __construct(private UserStore $userStore, private RecipeStore $recipeStore, private RatingsStore $ratingsStore, private IndexBuilder $indexBuilder, private Session $session, private BackupService $backupService, private Auth $auth) {}
-    public function dashboard(Request $request): Response { return new Response(render('admin/dashboard', ['auth' => $this->auth, 'stats' => ['recipes' => $this->recipeStore->countAll(), 'users' => count($this->userStore->all()), 'ratings' => $this->ratingsStore->totalRatings(), 'flags' => count(array_filter(read_json_file(DATA_PATH . '/moderation/flags.json', []), static fn(array $flag): bool => !empty($flag['active'])))]], 'layout/admin')); }
+    private FlagsStore $flagsStore;
+    public function __construct(private UserStore $userStore, private RecipeStore $recipeStore, private RatingsStore $ratingsStore, private IndexBuilder $indexBuilder, private Session $session, private BackupService $backupService, private Auth $auth) { $this->flagsStore = new FlagsStore(); }
+    public function dashboard(Request $request): Response { return new Response(render('admin/dashboard', ['auth' => $this->auth, 'stats' => ['recipes' => $this->recipeStore->countAll(), 'users' => count($this->userStore->all()), 'ratings' => $this->ratingsStore->totalRatings(), 'flags' => $this->flagsStore->activeFlagCount()]], 'layout/admin')); }
     public function users(Request $request): Response { $page = max(1, (int) $request->query('page', 1)); $listing = $this->userStore->list($page, 15); return new Response(render('admin/users', ['auth' => $this->auth, 'listing' => $listing], 'layout/admin')); }
     public function changeRole(Request $request, string $id): Response { if (Csrf::validateToken((string) $request->post('csrf_token', ''))) { $role = (string) $request->post('role', 'user'); if (in_array($role, ['user', 'editor', 'admin'], true)) { $this->userStore->update($id, ['role' => $role]); flash('success', 'User role updated.'); } } return Response::redirect('/admin/users'); }
     public function suspend(Request $request, string $id): Response { if (Csrf::validateToken((string) $request->post('csrf_token', ''))) { $this->userStore->softDelete($id); flash('success', 'User suspended.'); } return Response::redirect('/admin/users'); }
