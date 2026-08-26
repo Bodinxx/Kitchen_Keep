@@ -2,7 +2,7 @@
 **RECIPE WEBSITE**
 
 **Requirements & Functional Specification**
-**Database-Free, JSON-Based Recipe Platform**
+**MySQL-Backed Recipe Platform**
 
 <img width="512" height="342" alt="Recipe_Website_Requirements_Specification" src="https://github.com/user-attachments/assets/39ad785c-4e53-4df0-a79e-cefaa52ffcd8" />
 
@@ -13,12 +13,12 @@
 | **Item** | **Value** |
 |----|----|
 | Document | Recipe Website --- Requirements & Functional Specification |
-| Version | 1.0 |
-| Date | August 24, 2026 |
-| Status | Requirements baseline |
-| Primary hosting assumption | WHC.ca PHP-capable shared hosting |
-| Primary storage model | File-based JSON; no application database |
-| Restore model | Manual restore through hosting/file tools |
+| Version | 2.0 |
+| Date | August 26, 2026 |
+| Status | Requirements baseline — MySQL edition |
+| Primary hosting assumption | WHC.ca PHP-capable shared hosting with MySQL 5.7+ |
+| Primary storage model | MySQL relational database (InnoDB, utf8mb4) |
+| Restore model | mysqldump backup; manual restore through hosting control panel |
 
 ## Terminology
 
@@ -37,7 +37,7 @@
 
 The Recipe Website will be a publicly accessible recipe-discovery and cookbook platform. Anyone may browse published recipes. Verified registered users may contribute recipes, rate recipes, create cookbooks, and participate in moderation through flagging. Editors moderate content and maintain shared taxonomies; one Administrator manages the site, users, editors, configuration, backups and maintenance.
 
-A defining requirement is portability. The application must not depend on MySQL, PostgreSQL, SQLite, MongoDB or another application database. Recipes and related records will be stored as JSON files, while uploaded images remain ordinary files. Search and lookup performance may use generated JSON indexes so long as those indexes are rebuildable and never become the only copy of important data.
+All persistent application data is stored in a MySQL database (InnoDB, utf8mb4). Structured JSON columns are used for compound recipe attributes such as ingredients, steps, tags and categories, while uploaded images remain ordinary files. MySQL's native indexing and FULLTEXT search replace the previously planned JSON index files, improving performance, reliability, and data integrity.
 
 The initial release includes structured ingredients, automatic serving/yield scaling, metric and US measurement conversion, ingredient-aware volume-to-weight conversions where reliable density data exists, ratings, recipe PDF/print export, private shareable cookbooks, guided recipe creation, reverse moderation, responsive design, four themes, accessibility targets, SEO structured data, and a required What Can I Make? ingredient-matching feature.
 
@@ -46,16 +46,16 @@ The initial release includes structured ingredients, automatic serving/yield sca
 ## 2.1 Primary Goals
 - Provide a clean public recipe library that is easy to browse on desktop, tablet and phone.
 - Allow verified users to contribute recipes without pre-approval while retaining effective reverse moderation.
-- Keep the entire site portable between compatible hosts by storing persistent application data primarily in files.
+- Store all persistent application data in a MySQL database to ensure data integrity, ACID transactions, and reliable concurrent access.
 - Support reliable scaling and unit conversion through structured ingredient data rather than free-form ingredient strings.
 - Allow users to create private cookbooks and optionally share them through static public links.
 - Provide useful recipe discovery, including ingredient inclusion/exclusion and What Can I Make?.
 - Keep administration practical for a small site team consisting of one Administrator and multiple Editors.
 
 ## 2.2 Explicit Constraints
-- No application database is to be used for recipe, account, rating, cookbook or taxonomy storage.
-- Initial hosting must be compatible with normal PHP-capable WHC.ca shared hosting.
-- Automatic in-application site restoration is out of scope; restores are manual.
+- MySQL 5.7 or later is required; InnoDB engine and utf8mb4 charset are mandatory.
+- Initial hosting must be compatible with normal PHP-capable WHC.ca shared hosting with a MySQL database.
+- Automatic in-application site restoration is out of scope; restores are manual via the hosting control panel.
 - Full recipe revision history is out of scope to control storage growth.
 - Cookbook duplication is out of scope.
 - Persistent personal pantry inventory is out of scope for launch.
@@ -64,29 +64,50 @@ The initial release includes structured ingredients, automatic serving/yield sca
 
 # 3. Architecture and Storage Model
 
-## 3.1 File-Based Persistence
+## 3.1 Database-Backed Persistence
 
-Persistent application information will be stored in JSON files and ordinary media files. The architecture must separate authoritative records from generated indexes/caches so the site can be reconstructed after migration or index loss.
+All persistent application data is stored in a MySQL database. The connection is configured in `config/db.php` (not committed — copy `config/db.example.php` and fill in your credentials). The schema is in `database/schema.sql` and must be imported into the MySQL database before first use.
 
-- **ARCH-001 --- Individual recipe files** *(Launch)* Each recipe must be stored in its own authoritative JSON file using a permanent internal recipe ID rather than a title-based identifier.
-- **ARCH-002 --- Individual user files** *(Launch)* Each user account must be stored in its own authoritative JSON file. Login must use a generated lookup index so authentication never requires scanning every user file.
-- **ARCH-003 --- Per-recipe ratings** *(Launch)* Each recipe should have a separate ratings record/file so voting does not require rewriting recipe content or one global ratings file.
-- **ARCH-004 --- Ingredient dictionary** *(Launch)* The ingredient dictionary is logically centralized but may be physically split across multiple files and generated lookup indexes for performance and safer concurrent writes.
-- **ARCH-005 --- Generated indexes** *(Launch)* Search, autocomplete, user lookup, tag and other performance indexes must be rebuildable from authoritative records.
-- **ARCH-006 --- Protected data** *(Launch)* Sensitive JSON and backup data must be outside the public web root where practical, or otherwise protected from direct HTTP access.
+**Tables and their purpose:**
 
-## 3.2 Authoritative vs Derived Data
+| Table | Description |
+|----|---|
+| `users` | Registered accounts; indexed by `email` and `username`. |
+| `recipes` | Recipe records; compound fields (`ingredients`, `steps`, `tags`, `categories`, `images`) stored as JSON columns; FULLTEXT index on `title` and `description`. |
+| `cookbooks` | User-owned collections of recipe references; `sections` stored as a JSON column. |
+| `ratings` | One row per user per recipe; composite primary key `(recipe_id, user_id)`. |
+| `ingredients` | Canonical ingredient dictionary; `aliases` stored as JSON; FULLTEXT index on `name`. |
+| `moderation_flags` | User-submitted content flags; resolved by editors. |
+| `audit_log` | Immutable append-only record of administrative actions. |
+| `site_config` | Key–value pairs for runtime site settings; seeded with defaults on first install. |
 
-| **Authoritative** | **Derived / Rebuildable** |
-|----|----|
-| Recipes | Search/browse index |
-| Users | User lookup index |
-| Ratings | Cached rating averages/counts |
-| Cookbooks | Tag/category indexes |
-| Ingredient definitions | Autocomplete indexes |
-| Moderation/audit records | Cached recipe cards |
-| Site configuration | Cached popularity summaries |
-| Uploaded media | Generated thumbnails where source image remains available |
+**Setting up the database:**
+1. Create the MySQL database and user on your host.
+2. Import the schema: `mysql -u <user> -p <dbname> < database/schema.sql`
+3. Copy `config/db.example.php` to `config/db.php` and enter your credentials.
+4. `config/db.php` is listed in `.gitignore` and must never be committed.
+
+- **ARCH-001 --- MySQL as single source of truth** *(Launch)* All authoritative records (recipes, users, ratings, cookbooks, ingredients) are stored in MySQL with appropriate indexes and constraints.
+- **ARCH-002 --- JSON columns for compound data** *(Launch)* Compound fields that do not require individual column querying (ingredient lists, step arrays, tag arrays) are stored as MySQL JSON columns, keeping the schema flat and queries simple.
+- **ARCH-003 --- Per-recipe ratings** *(Launch)* Ratings are stored in the `ratings` table with a composite primary key `(recipe_id, user_id)` preventing duplicates at the database level.
+- **ARCH-004 --- Ingredient dictionary** *(Launch)* The `ingredients` table with a FULLTEXT index on `name` provides fast autocomplete and canonical lookup.
+- **ARCH-005 --- Native MySQL indexes** *(Launch)* MySQL FULLTEXT, B-tree, and composite indexes replace the previously planned JSON index files. No external search indexes need to be rebuilt.
+- **ARCH-006 --- Protected credentials** *(Launch)* Database credentials are stored in `config/db.php` outside the public web root and must not be committed to version control. Uploaded media remains in the `public/uploads/` directory.
+
+## 3.2 Authoritative Data
+
+All data below lives in MySQL and is the single authoritative record.
+
+| **Table** | **Description** |
+|----|---|
+| `recipes` | Full recipe content |
+| `users` | Account credentials and profile |
+| `ratings` | Per-user recipe votes |
+| `cookbooks` | User cookbook definitions |
+| `ingredients` | Ingredient dictionary |
+| `moderation_flags` | Content flag records |
+| `audit_log` | Administrative audit trail |
+| `site_config` | Runtime site configuration |
 
 # 4. Users, Authentication and Profiles
 

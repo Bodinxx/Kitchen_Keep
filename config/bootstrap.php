@@ -8,7 +8,6 @@ if (!defined('BASE_PATH')) {
     define('PUBLIC_PATH', BASE_PATH . '/public');
     define('SRC_PATH', BASE_PATH . '/src');
     define('TEMPLATES_PATH', BASE_PATH . '/templates');
-    define('SITE_CONFIG_PATH', DATA_PATH . '/config/site.json');
 }
 
 error_reporting(E_ALL);
@@ -16,7 +15,7 @@ ini_set('display_errors', '1');
 ini_set('log_errors', '1');
 ini_set('error_log', DATA_PATH . '/logs/php-error.log');
 
-foreach ([DATA_PATH, DATA_PATH . '/recipes', DATA_PATH . '/users', DATA_PATH . '/ratings', DATA_PATH . '/cookbooks', DATA_PATH . '/ingredients', DATA_PATH . '/indexes', DATA_PATH . '/moderation', DATA_PATH . '/config', DATA_PATH . '/media', DATA_PATH . '/backups', DATA_PATH . '/logs', PUBLIC_PATH . '/uploads'] as $dir) {
+foreach ([DATA_PATH, DATA_PATH . '/media', DATA_PATH . '/backups', DATA_PATH . '/logs', PUBLIC_PATH . '/uploads'] as $dir) {
     if (!is_dir($dir)) {
         mkdir($dir, 0775, true);
     }
@@ -39,66 +38,55 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax', 'use_strict_mode' => true]);
 }
 
-function read_json_file(string $path, array $default = []): array
+// ---------------------------------------------------------------------------
+// Database-backed site configuration
+// ---------------------------------------------------------------------------
+
+function _db(): \PDO
 {
-    if (!is_file($path)) {
-        return $default;
-    }
-    $contents = file_get_contents($path);
-    if ($contents === false || trim($contents) === '') {
-        return $default;
-    }
-    $decoded = json_decode($contents, true);
-    return is_array($decoded) ? $decoded : $default;
+    return \App\Core\Database::getInstance();
 }
 
-function write_json_file(string $path, array $data): void
+/** Load all site_config rows into the in-memory cache. */
+function _load_site_config(): array
 {
-    $dir = dirname($path);
-    if (!is_dir($dir)) {
-        mkdir($dir, 0775, true);
-    }
-    $handle = fopen($path, 'c+');
-    if ($handle === false) {
-        throw new RuntimeException('Unable to open file: ' . $path);
-    }
+    $defaults = [
+        'site_name'     => 'Kitchen Keep',
+        'tagline'       => 'Discover, create, and share recipes',
+        'default_theme' => 'light',
+        'items_per_page'=> 12,
+        'from_email'    => 'noreply@kitchenkeep.local',
+        'from_name'     => 'Kitchen Keep',
+    ];
     try {
-        if (!flock($handle, LOCK_EX)) {
-            throw new RuntimeException('Unable to lock file: ' . $path);
+        $rows = _db()->query('SELECT config_key, config_value FROM site_config')->fetchAll();
+        $config = $defaults;
+        foreach ($rows as $row) {
+            $config[$row['config_key']] = $row['config_value'];
         }
-        ftruncate($handle, 0);
-        rewind($handle);
-        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-        if ($json === false) {
-            throw new RuntimeException('Unable to encode JSON: ' . $path);
-        }
-        fwrite($handle, $json . PHP_EOL);
-        fflush($handle);
-        flock($handle, LOCK_UN);
-    } finally {
-        fclose($handle);
+        return $config;
+    } catch (\Throwable) {
+        return $defaults;
     }
 }
 
-function append_json_record(string $path, array $record): void
-{
-    $data = read_json_file($path, []);
-    $data[] = $record;
-    write_json_file($path, $data);
-}
-
-$GLOBALS['site_config'] = read_json_file(SITE_CONFIG_PATH, ['site_name' => 'Kitchen Keep', 'tagline' => 'Discover, create, and share recipes', 'default_theme' => 'light', 'items_per_page' => 12, 'from_email' => 'noreply@kitchenkeep.local', 'from_name' => 'Kitchen Keep']);
-define('APP_SECRET', hash('sha256', json_encode($GLOBALS['site_config']) . BASE_PATH));
+$GLOBALS['site_config'] = _load_site_config();
+define('APP_SECRET', hash('sha256', BASE_PATH . ($_SERVER['SERVER_NAME'] ?? 'localhost')));
 
 function site_config(?string $key = null, mixed $default = null): mixed
 {
     $config = $GLOBALS['site_config'] ?? [];
     return $key === null ? $config : ($config[$key] ?? $default);
 }
+
 function save_site_config(array $config): void
 {
     $GLOBALS['site_config'] = $config;
-    write_json_file(SITE_CONFIG_PATH, $config);
+    $db = _db();
+    $stmt = $db->prepare('INSERT INTO site_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)');
+    foreach ($config as $key => $value) {
+        $stmt->execute([$key, (string) $value]);
+    }
 }
 function e(mixed $value): string
 {
@@ -183,7 +171,12 @@ function render(string $template, array $data = [], string $layout = 'layout/bas
 }
 function append_audit(string $action, array $context = []): void
 {
-    append_json_record(DATA_PATH . '/moderation/audit.json', ['id' => bin2hex(random_bytes(8)), 'action' => $action, 'context' => $context, 'created_at' => current_timestamp()]);
+    try {
+        _db()->prepare('INSERT INTO audit_log (id, action, context, created_at) VALUES (?, ?, ?, ?)')
+            ->execute([bin2hex(random_bytes(8)), $action, json_encode($context), current_timestamp()]);
+    } catch (\Throwable) {
+        // Audit failures must never break the main request.
+    }
 }
 function default_categories(): array
 {

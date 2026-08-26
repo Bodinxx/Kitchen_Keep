@@ -7,7 +7,7 @@ final class HomeController
     public function __construct(private RecipeStore $recipeStore, private IndexBuilder $indexBuilder, private Auth $auth) {}
     public function index(Request $request): Response
     {
-        $featured = $this->recipeStore->listPublished(1, 6, 'latest')['items']; $categories = read_json_file(DATA_PATH . '/indexes/categories.json', []); $counts = []; foreach ($categories as $category => $ids) $counts[$category] = count($ids);
+        $featured = $this->recipeStore->listPublished(1, 6, 'latest')['items']; $counts = []; foreach ($this->indexBuilder->getCategoryIndex() as $category => $ids) $counts[$category] = count($ids);
         return new Response(render('home/index', ['auth' => $this->auth, 'featured' => $featured, 'categoryCounts' => $counts, 'headline' => site_config('tagline'), 'message' => null]));
     }
 }

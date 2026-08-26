@@ -1,31 +1,75 @@
 <?php
 declare(strict_types=1);
 namespace App\Store;
+use App\Core\Database;
+/**
+ * IndexBuilder is now a thin wrapper around direct MySQL queries.
+ * The rebuild() method is a no-op because MySQL itself is always the source of truth —
+ * no denormalized JSON index files are needed.
+ */
 final class IndexBuilder
 {
-    public function __construct(private RecipeStore $recipeStore) {}
-    public function rebuild(): void { $this->rebuildSearch(); $this->rebuildTags(); }
-    public function rebuildSearch(): void
+    private \PDO $db;
+    public function __construct(private RecipeStore $recipeStore) { $this->db = Database::getInstance(); }
+
+    /** No-op: MySQL eliminates the need for pre-built JSON indexes. */
+    public function rebuild(): void {}
+    /** @deprecated */
+    public function rebuildSearch(): void {}
+    /** @deprecated */
+    public function rebuildTags(): void {}
+
+    public function getSearchIndex(): array
     {
-        $search = []; $browse = [];
-        foreach ($this->recipeStore->listAll() as $recipe) {
-            if (!empty($recipe['deleted_at']) || ($recipe['status'] ?? '') !== 'published') continue;
-            $entry = ['id' => $recipe['id'], 'title' => $recipe['title'], 'slug' => $recipe['slug'], 'description' => $recipe['description'], 'tags' => $recipe['tags'] ?? [], 'categories' => $recipe['categories'] ?? [], 'ingredient_names' => array_values(array_map(static fn(array $ingredient): string => (string) ($ingredient['name'] ?? ''), $recipe['ingredients'] ?? [])), 'rating_avg' => $recipe['rating_avg'] ?? 0, 'rating_count' => $recipe['rating_count'] ?? 0, 'author_id' => $recipe['author_id'] ?? '', 'created_at' => $recipe['created_at'] ?? 0];
-            $search[] = $entry; $browse[] = $entry;
+        $stmt = $this->db->query(
+            "SELECT id, title, slug, description, tags, categories, ingredients, rating_avg, rating_count, author_id, created_at
+             FROM recipes WHERE status = 'published' AND deleted_at IS NULL"
+        );
+        $rows = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $ingredients = json_decode((string)$row['ingredients'], true) ?? [];
+            $rows[] = [
+                'id'               => $row['id'],
+                'title'            => $row['title'],
+                'slug'             => $row['slug'],
+                'description'      => $row['description'],
+                'tags'             => json_decode((string)$row['tags'], true) ?? [],
+                'categories'       => json_decode((string)$row['categories'], true) ?? [],
+                'ingredient_names' => array_values(array_map(static fn(array $i): string => (string)($i['name'] ?? ''), $ingredients)),
+                'rating_avg'       => (float)$row['rating_avg'],
+                'rating_count'     => (int)$row['rating_count'],
+                'author_id'        => $row['author_id'],
+                'created_at'       => (int)$row['created_at'],
+            ];
         }
-        usort($browse, static fn(array $a, array $b): int => ($b['created_at'] ?? 0) <=> ($a['created_at'] ?? 0));
-        write_json_file(DATA_PATH . '/indexes/search.json', $search); write_json_file(DATA_PATH . '/indexes/browse.json', $browse);
+        return $rows;
     }
-    public function rebuildTags(): void
+
+    public function getTagsIndex(): array
     {
-        $tags = []; $categories = [];
-        foreach ($this->recipeStore->listAll() as $recipe) {
-            if (!empty($recipe['deleted_at']) || ($recipe['status'] ?? '') !== 'published') continue;
-            foreach ($recipe['tags'] ?? [] as $tag) $tags[$tag][] = $recipe['id'];
-            foreach ($recipe['categories'] ?? [] as $category) $categories[$category][] = $recipe['id'];
+        $stmt = $this->db->query("SELECT id, tags FROM recipes WHERE status = 'published' AND deleted_at IS NULL");
+        $index = [];
+        foreach ($stmt->fetchAll() as $row) {
+            foreach (json_decode((string)$row['tags'], true) ?? [] as $tag) {
+                $index[$tag][] = $row['id'];
+            }
         }
-        ksort($tags); ksort($categories); write_json_file(DATA_PATH . '/indexes/tags.json', $tags); write_json_file(DATA_PATH . '/indexes/categories.json', $categories);
+        ksort($index);
+        return $index;
     }
-    public function getSearchIndex(): array { return read_json_file(DATA_PATH . '/indexes/search.json', []); }
-    public function getBrowseIndex(): array { return read_json_file(DATA_PATH . '/indexes/browse.json', []); }
+
+    public function getCategoryIndex(): array
+    {
+        $stmt = $this->db->query("SELECT id, categories FROM recipes WHERE status = 'published' AND deleted_at IS NULL");
+        $index = [];
+        foreach ($stmt->fetchAll() as $row) {
+            foreach (json_decode((string)$row['categories'], true) ?? [] as $cat) {
+                $index[$cat][] = $row['id'];
+            }
+        }
+        ksort($index);
+        return $index;
+    }
 }
+
+
