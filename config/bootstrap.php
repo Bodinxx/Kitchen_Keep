@@ -34,6 +34,11 @@ spl_autoload_register(static function (string $class): void {
 });
 
 if (session_status() === PHP_SESSION_NONE) {
+    $sessionPath = DATA_PATH . '/sessions';
+    if (!is_dir($sessionPath)) {
+        mkdir($sessionPath, 0700, true);
+    }
+    session_save_path($sessionPath);
     session_name('kitchen_keep');
     session_start(['cookie_httponly' => true, 'cookie_samesite' => 'Lax', 'use_strict_mode' => true]);
 }
